@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>Cube Lab — 3D Rubik's Cube</title>
 <style>
   :root{
@@ -19,7 +19,7 @@
   html,body{height:100%}
   body{
     font-family:var(--sans);color:var(--ink);background:var(--bg0);overflow:hidden;
-    -webkit-font-smoothing:antialiased;user-select:none;-webkit-user-select:none;touch-action:none;
+    -webkit-font-smoothing:antialiased;user-select:none;-webkit-user-select:none;touch-action:manipulation;
   }
   /* layered ambient background */
   .bg{position:fixed;inset:0;z-index:-3;background:
@@ -58,7 +58,7 @@
     radial-gradient(900px 500px at 50% -10%, rgba(110,168,255,.08), transparent 60%),
     linear-gradient(180deg,rgba(20,27,48,.5),rgba(10,14,26,.65));
     box-shadow:inset 0 1px 0 rgba(255,255,255,.04),0 30px 70px rgba(0,0,0,.5);overflow:hidden;min-height:320px}
-  canvas{position:absolute;inset:0;width:100%;height:100%;display:block;cursor:grab}
+  canvas{position:absolute;inset:0;width:100%;height:100%;display:block;cursor:grab;touch-action:pinch-zoom}
   canvas.grabbing{cursor:grabbing}
   canvas.turning{cursor:pointer}
   .hint{position:absolute;left:16px;bottom:14px;font:500 11.5px var(--mono);color:var(--dim);background:rgba(8,11,20,.55);border:1px solid var(--line);padding:7px 12px;border-radius:9px;backdrop-filter:blur(6px);pointer-events:none;line-height:1.5}
@@ -820,22 +820,30 @@ function computeTurnFromDrag(stk,dx,dy){
   const q=(sv[0]*dx+sv[1]*dy)>0?1:-1;
   return {a:moveAxis,l:layer,q};
 }
+const pointers=new Map();
 cv.addEventListener('pointerdown',e=>{
+  pointers.set(e.pointerId,true);
+  if(pointers.size>1){ // second finger: hand the gesture to the browser for pinch-zoom
+    if(drag){drag=null;cv.classList.remove('grabbing');}
+    return;
+  }
   cv.setPointerCapture(e.pointerId);
   const rect=cv.getBoundingClientRect();
   const x=e.clientX-rect.left,y=e.clientY-rect.top;
   const stk=busy()?null:pickSticker(x,y);
-  drag={x,y,sx:x,sy:y,stk,mode:stk?'turn':'orbit',moved:false};
+  drag={id:e.pointerId,x,y,sx:x,sy:y,stk,mode:stk?'turn':'orbit',moved:false,t0:performance.now()};
   cv.classList.add('grabbing');
 });
 cv.addEventListener('pointermove',e=>{
-  if(!drag)return;
+  if(!drag||e.pointerId!==drag.id||pointers.size>1)return;
   const rect=cv.getBoundingClientRect();
   const x=e.clientX-rect.left,y=e.clientY-rect.top;
   const dx=x-drag.x,dy=y-drag.y;
   if(drag.mode==='orbit'){
-    yaw+=dx*0.008;pitch+=dy*0.008;
-    pitch=Math.max(-1.55,Math.min(1.55,pitch));
+    if(performance.now()-drag.t0>50){ // settle guard: don't orbit on the instant a pinch's first finger lands
+      yaw+=dx*0.008;pitch+=dy*0.008;
+      pitch=Math.max(-1.55,Math.min(1.55,pitch));
+    }
     drag.x=x;drag.y=y;drag.moved=true;
   }else{
     const tdx=x-drag.sx,tdy=y-drag.sy;
@@ -847,7 +855,10 @@ cv.addEventListener('pointermove',e=>{
     }
   }
 });
-function endDrag(e){if(drag){drag=null;cv.classList.remove('grabbing');}}
+function endDrag(e){
+  pointers.delete(e.pointerId);
+  if(drag&&e.pointerId===drag.id){drag=null;cv.classList.remove('grabbing');}
+}
 cv.addEventListener('pointerup',endDrag);
 cv.addEventListener('pointercancel',endDrag);
 cv.addEventListener('contextmenu',e=>e.preventDefault());
